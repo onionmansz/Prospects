@@ -1365,6 +1365,8 @@ const WorkflowsPage = () => {
     id: "w_demo",
     name: "New Client Onboarding",
     description: "End-to-end process for bringing on a new client from first meeting to funded accounts.",
+    linkedType: "client",
+    clientId: "C-10042",
     steps: [
       { id: "sd1", title: "Discovery Meeting", desc: "Understand client goals, family situation, risk tolerance, and existing holdings.", tools: ["Conquest", "Client360"], docs: ["Client Meeting Notes", "Risk Questionnaire"], status: "complete" },
       { id: "sd2", title: "Complete KYC & Suitability", desc: "Fill out Know Your Client form and assess suitability. Confirm all regulatory requirements.", tools: ["Client360"], docs: ["KYC Form", "Suitability Letter"], status: "complete" },
@@ -1378,31 +1380,62 @@ const WorkflowsPage = () => {
   const [activeId, setActiveId] = useState("w_demo");
   const [editingStepId, setEditingStepId] = useState(null);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [pendingCreation, setPendingCreation] = useState(null); // { source: "template" | "blank", template?: obj }
+  const [creationLinkedType, setCreationLinkedType] = useState(null); // "prospect" | "client"
+  const [creationClientId, setCreationClientId] = useState("");
 
   const activeFlow = workflows.find(w => w.id === activeId);
 
-  const cloneTemplate = (t) => {
-    const newFlow = {
-      ...t,
-      id: "w" + Date.now(),
-      name: t.name,
-      steps: t.steps.map(s => ({ ...s, id: "s" + (++stepCounter), status: "not_started" })),
-    };
-    setWorkflows(prev => [...prev, newFlow]);
-    setActiveId(newFlow.id);
+  const startCreation = (source, template) => {
+    setPendingCreation({ source, template });
+    setCreationLinkedType(null);
+    setCreationClientId("");
+  };
+
+  const confirmCreation = () => {
+    if (!creationLinkedType) return;
+    if (creationLinkedType === "client" && !creationClientId.trim()) return;
+    const linkedFields = { linkedType: creationLinkedType, clientId: creationLinkedType === "client" ? creationClientId.trim() : null };
+    if (pendingCreation.source === "template") {
+      const t = pendingCreation.template;
+      const newFlow = {
+        ...t,
+        id: "w" + Date.now(),
+        name: t.name,
+        ...linkedFields,
+        steps: t.steps.map(s => ({ ...s, id: "s" + (++stepCounter), status: "not_started" })),
+      };
+      setWorkflows(prev => [...prev, newFlow]);
+      setActiveId(newFlow.id);
+    } else {
+      const newFlow = {
+        id: "w" + Date.now(),
+        name: "Untitled Workflow",
+        description: "",
+        ...linkedFields,
+        steps: [{ id: "s" + (++stepCounter), title: "Step 1", desc: "", tools: [], docs: [], status: "not_started" }],
+      };
+      setWorkflows(prev => [...prev, newFlow]);
+      setActiveId(newFlow.id);
+    }
+    setPendingCreation(null);
+    setCreationLinkedType(null);
+    setCreationClientId("");
     setShowTemplates(false);
   };
 
+  const cancelCreation = () => {
+    setPendingCreation(null);
+    setCreationLinkedType(null);
+    setCreationClientId("");
+  };
+
+  const cloneTemplate = (t) => {
+    startCreation("template", t);
+  };
+
   const createBlank = () => {
-    const newFlow = {
-      id: "w" + Date.now(),
-      name: "Untitled Workflow",
-      description: "",
-      steps: [{ id: "s" + (++stepCounter), title: "Step 1", desc: "", tools: [], docs: [], status: "not_started" }],
-    };
-    setWorkflows(prev => [...prev, newFlow]);
-    setActiveId(newFlow.id);
-    setShowTemplates(false);
+    startCreation("blank", null);
   };
 
   const updateFlow = (updater) => {
@@ -1471,10 +1504,91 @@ const WorkflowsPage = () => {
     if (activeId === wId) setActiveId(null);
   };
 
+  // Prospect / Client selection modal
+  const renderLinkSelection = () => {
+    if (!pendingCreation) return null;
+    return (
+      <div style={{
+        position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.35)",
+        display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
+      }}>
+        <div style={{
+          background: T.white, borderRadius: 6, padding: "28px 32px", width: 420, boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+          fontFamily: "'Source Sans 3', sans-serif",
+        }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: T.navy, marginBottom: 4 }}>Link this Workflow</div>
+          <div style={{ fontSize: 12, color: T.textMid, marginBottom: 20, lineHeight: 1.4 }}>
+            Each workflow must be tied to a Prospect or an existing Client.
+          </div>
+
+          <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
+            {["prospect", "client"].map(type => {
+              const active = creationLinkedType === type;
+              return (
+                <button key={type} onClick={() => { setCreationLinkedType(type); setCreationClientId(""); }} style={{
+                  flex: 1, padding: "14px 16px", borderRadius: 4, cursor: "pointer", transition: "all 0.15s",
+                  border: `2px solid ${active ? T.blue : T.border}`,
+                  background: active ? T.blueLight : T.white,
+                  textAlign: "center",
+                }}>
+                  <div style={{ fontSize: 22, marginBottom: 4 }}>{type === "prospect" ? "👤" : "🏦"}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: active ? T.navy : T.textMid }}>
+                    {type === "prospect" ? "Prospect" : "Client"}
+                  </div>
+                  <div style={{ fontSize: 11, color: T.textLight, marginTop: 2 }}>
+                    {type === "prospect" ? "New or potential client" : "Existing client with ID"}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {creationLinkedType === "client" && (
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: T.textMid, display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.3px" }}>
+                Client ID
+              </label>
+              <input
+                value={creationClientId}
+                onChange={e => setCreationClientId(e.target.value)}
+                placeholder="e.g. C-10042"
+                autoFocus
+                style={{
+                  width: "100%", padding: "10px 14px", fontSize: 13, border: `1px solid ${T.border}`,
+                  borderRadius: 3, fontFamily: "'Source Sans 3', sans-serif", outline: "none", boxSizing: "border-box",
+                }}
+                onFocus={e => e.currentTarget.style.borderColor = T.blue}
+                onBlur={e => e.currentTarget.style.borderColor = T.border}
+              />
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button onClick={cancelCreation} style={{
+              padding: "8px 20px", fontSize: 12, fontWeight: 600, border: `1px solid ${T.border}`,
+              background: T.white, color: T.textMid, borderRadius: 3, cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif",
+            }}>Cancel</button>
+            <button
+              onClick={confirmCreation}
+              disabled={!creationLinkedType || (creationLinkedType === "client" && !creationClientId.trim())}
+              style={{
+                padding: "8px 20px", fontSize: 12, fontWeight: 600, border: "none",
+                background: (!creationLinkedType || (creationLinkedType === "client" && !creationClientId.trim())) ? T.border : T.navy,
+                color: T.white, borderRadius: 3, cursor: (!creationLinkedType || (creationLinkedType === "client" && !creationClientId.trim())) ? "not-allowed" : "pointer",
+                fontFamily: "'Source Sans 3', sans-serif",
+              }}
+            >Create Workflow</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // Template / empty state
   if (showTemplates || workflows.length === 0) {
     return (
       <div>
+        {renderLinkSelection()}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: T.navy, fontFamily: "'Source Sans 3', sans-serif" }}>Start from a Template</div>
@@ -1516,6 +1630,7 @@ const WorkflowsPage = () => {
 
   return (
     <div style={{ display: "flex", gap: 16, height: "calc(100vh - 120px)" }}>
+      {renderLinkSelection()}
       {/* Left: workflow list */}
       <div style={{ width: 220, flexShrink: 0, display: "flex", flexDirection: "column", gap: 6 }}>
         {workflows.map(w => {
@@ -1530,6 +1645,21 @@ const WorkflowsPage = () => {
                 <div style={{ fontSize: 13, fontWeight: 700, color: T.navy, fontFamily: "'Source Sans 3', sans-serif" }}>{w.name}</div>
                 <span onClick={(e) => { e.stopPropagation(); deleteWorkflow(w.id); }} style={{ fontSize: 11, color: T.textLight, cursor: "pointer", padding: "2px 4px" }}>✕</span>
               </div>
+              {w.linkedType && (
+                <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, padding: "1px 7px", borderRadius: 3,
+                    background: w.linkedType === "client" ? T.greenLight : T.orangeLight,
+                    color: w.linkedType === "client" ? T.green : T.orange,
+                    fontFamily: "'Source Sans 3', sans-serif",
+                  }}>
+                    {w.linkedType === "client" ? "Client" : "Prospect"}
+                  </span>
+                  {w.linkedType === "client" && w.clientId && (
+                    <span style={{ fontSize: 10, color: T.textLight, fontFamily: "'Source Code Pro', monospace" }}>{w.clientId}</span>
+                  )}
+                </div>
+              )}
               <div style={{ fontSize: 11, color: T.textMid, fontFamily: "'Source Sans 3', sans-serif", marginTop: 3 }}>
                 {completed}/{w.steps.length} steps complete
               </div>
@@ -1550,6 +1680,23 @@ const WorkflowsPage = () => {
         <div style={{ flex: 1, overflowY: "auto" }}>
           {/* Workflow header */}
           <div style={{ background: T.white, border: `1px solid ${T.borderLight}`, borderRadius: 4, padding: "16px 20px", marginBottom: 16 }}>
+            {activeFlow.linkedType && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span style={{
+                  fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 3,
+                  background: activeFlow.linkedType === "client" ? T.greenLight : T.orangeLight,
+                  color: activeFlow.linkedType === "client" ? T.green : T.orange,
+                  fontFamily: "'Source Sans 3', sans-serif",
+                }}>
+                  {activeFlow.linkedType === "client" ? "Client" : "Prospect"}
+                </span>
+                {activeFlow.linkedType === "client" && activeFlow.clientId && (
+                  <span style={{ fontSize: 12, fontWeight: 600, color: T.textMid, fontFamily: "'Source Code Pro', monospace" }}>
+                    ID: {activeFlow.clientId}
+                  </span>
+                )}
+              </div>
+            )}
             <input
               value={activeFlow.name}
               onChange={e => updateFlow(w => ({ ...w, name: e.target.value }))}
